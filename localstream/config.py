@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Whisper settings
     whisper_model_size: str = Field(default="base")
 
+    # Local LLM settings
+    local_llm_model_name: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+
     # Read from environment variables if present
     model_config = SettingsConfigDict(
         env_file=".env",

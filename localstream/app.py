@@ -1,9 +1,10 @@
 import os
 import logging
+import torch
 from fastapi import FastAPI, BackgroundTasks, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from localstream.config import settings
 from localstream.transcribe import run_transcription
@@ -15,23 +16,30 @@ logger = logging.getLogger("localstream.app")
 # Initialize Vector DB Manager
 db_manager = VectorDBManager()
 
-# Initialize Google GenAI client
-# The SDK automatically checks GEMINI_API_KEY environment variable.
-gemini_key = os.environ.get("GEMINI_API_KEY")
-if not gemini_key:
-    logger.warning("GEMINI_API_KEY is not set. The '/api/query' synthesis endpoint will return errors until this key is supplied.")
+# Initialize Local LLM Model and Tokenizer
+model_name = settings.local_llm_model_name
+device = settings.compute_device
+# On CPU, load using float32. On CUDA, we can use float16.
+dtype = torch.float16 if device == "cuda" else torch.float32
 
+logger.info(f"Loading local LLM '{model_name}' on device '{device}'...")
 try:
-    genai_client = genai.Client()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=dtype,
+        low_cpu_mem_usage=True
+    ).to(device)
+    logger.info("Local LLM model loaded successfully.")
 except Exception as e:
-    logger.error(f"Failed to initialize Google GenAI SDK client: {e}")
-    genai_client = None
+    logger.error(f"Failed to load local LLM model '{model_name}': {e}")
+    raise RuntimeError(f"Local LLM initialization failed: {e}") from e
 
 # Create FastAPI app
 app = FastAPI(
     title="LocalStream RAG Engine",
-    description="A self-hosted, local multimedia semantic search and RAG service.",
-    version="1.0.0"
+    description="A 100% self-hosted, local multimedia semantic search and RAG service.",
+    version="2.0.0"
 )
 
 # Request / Response Schemas
@@ -80,6 +88,31 @@ def background_ingest_worker(file_path: str):
         logger.error(f"Background worker failed for file: {file_path}. Error: {e}")
 
 # API Endpoints
+
+@app.get("/", response_class=HTMLResponse)
+def serve_homepage():
+    """Serves the glassmorphic interactive RAG web UI at the root path."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_file_path = os.path.join(current_dir, "index.html")
+    
+    if not os.path.exists(html_file_path):
+        logger.error(f"HTML frontend file missing at: {html_file_path}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="index.html file not found in the package."
+        )
+        
+    try:
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        logger.error(f"Error reading frontend file: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load user interface: {e}"
+        )
+
 @app.get("/health")
 def health():
     """Simple service health and compute configuration check."""
@@ -89,7 +122,7 @@ def health():
         "collection_name": settings.collection_name,
         "embedding_model": settings.embedding_model_name,
         "whisper_model": settings.whisper_model_size,
-        "gemini_client_ready": genai_client is not None
+        "local_llm_model": settings.local_llm_model_name
     }
 
 @app.post("/api/ingest", status_code=status.HTTP_202_ACCEPTED)
@@ -129,27 +162,8 @@ def ingest_media(request: IngestRequest, background_tasks: BackgroundTasks):
 def query_media(request: QueryRequest):
     """
     RAG Query endpoint. Retrieves relevant video chunks using dense embeddings,
-    compiles a structured context prompt, and synthesizes an answer using gemini-2.5-flash.
+    compiles a structured context prompt, and synthesizes an answer using the local LLM.
     """
-    global genai_client
-    
-    # Ensure Google GenAI client is active
-    if not genai_client:
-        # Retry initialization in case GEMINI_API_KEY was added dynamically
-        if os.environ.get("GEMINI_API_KEY"):
-            try:
-                genai_client = genai.Client()
-            except Exception as e:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Google GenAI SDK initialization failed: {e}"
-                )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="GEMINI_API_KEY is missing from the environment. Synthesis is unavailable."
-            )
-
     # 1. Encode incoming text string query
     try:
         query_vector = db_manager.model.encode(request.prompt).tolist()
@@ -180,13 +194,10 @@ def query_media(request: QueryRequest):
     
     for idx, hit in enumerate(search_results):
         payload = hit.payload
-        # Build contextual block representation for the LLM
         block = (
-            f"--- [Context Block {idx+1}] ---\n"
-            f"File Source: {payload.get('filename')}\n"
-            f"Full Path: {payload.get('file_path')}\n"
+            f"Source File: {payload.get('filename')}\n"
             f"Timeline: {payload.get('start_timestamp')} to {payload.get('end_timestamp')}\n"
-            f"Transcript Snippet: {payload.get('text')}\n"
+            f"Transcript: {payload.get('text')}\n"
         )
         context_blocks.append(block)
         
@@ -209,17 +220,11 @@ def query_media(request: QueryRequest):
             references=[]
         )
 
-    # 4. Construct prompts and execute Gemini synthesis
+    # 4. Construct prompts and execute local LLM inference
     context_str = "\n".join(context_blocks)
-    prompt_content = (
-        f"User Query: {request.prompt}\n\n"
-        f"Retrieved Context Blocks:\n"
-        f"{context_str}\n\n"
-        f"Please write a response summarizing the retrieved information to answer the user query."
-    )
-
+    
     system_instruction = (
-        "You are a helpful multimedia assistant. "
+        "You are a helpful local multimedia assistant. "
         "Your task is to synthesize an answer to the User Query based ONLY on the retrieved Context Blocks. "
         "Follow these rules strictly:\n"
         "1. Do not use any external knowledge. If the answer cannot be found in the context blocks, state clearly that you do not know.\n"
@@ -227,22 +232,52 @@ def query_media(request: QueryRequest):
         "3. Citation Format: [Filename.ext (HH:MM:SS)] (e.g. [demo_video.mp4 (00:01:23)]).\n"
         "4. Keep your answer factual, precise, and concise."
     )
+    
+    prompt_content = (
+        f"User Query: {request.prompt}\n\n"
+        f"Retrieved Context Blocks:\n"
+        f"{context_str}\n\n"
+        f"Please write a response summarizing the retrieved information to answer the user query."
+    )
 
+    # Format the prompt using Qwen's chat template
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": prompt_content}
+    ]
+    
     try:
-        response = genai_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt_content,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.0,  # Zero-temp for deterministic factual synthesis
-            )
+        # Convert messages format to chat token structure
+        prompt_text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
         )
-        answer = response.text.strip() if response.text else "Failed to generate answer."
+        
+        # Tokenize and run local generation
+        inputs = tokenizer([prompt_text], return_tensors="pt").to(device)
+        
+        with torch.no_grad():
+            generated_ids = model.generate(
+                **inputs,
+                max_new_tokens=512,
+                temperature=0.1,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id
+            )
+            
+        # Extract new tokens (remove prompt prefix)
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        
+        answer = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+        
     except Exception as e:
-        logger.error(f"Gemini API call failed: {e}")
+        logger.error(f"Local LLM text generation failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"LLM synthesis layer failed: {e}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Local text generation failed: {e}"
         )
 
     return QueryResponse(

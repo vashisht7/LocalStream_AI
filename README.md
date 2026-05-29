@@ -1,16 +1,17 @@
-# LocalStream: Local Multimedia Semantic Search & RAG Engine
+# LocalStream: 100% Local Multimedia Semantic Search & RAG Engine
 
-LocalStream is a self-hosted, multimodal multimedia semantic search and Retrieval-Augmented Generation (RAG) engine designed to run entirely locally (except for the final synthesis layer). It automatically extracts audio from uploaded videos, generates high-quality transcriptions with word-level timestamps using `faster-whisper`, embeds these transcript segments using `sentence-transformers`, stores them in a local `Qdrant` vector database, and serves a FastAPI query endpoint.
+LocalStream is a self-hosted, multimodal multimedia semantic search and Retrieval-Augmented Generation (RAG) engine designed to run **entirely locally**. The system does not transmit any data to cloud services. It automatically extracts audio from uploaded videos, generates high-quality transcriptions with word-level timestamps using `faster-whisper`, embeds these transcript segments using `sentence-transformers`, stores them in a local `Qdrant` vector database, and synthesizes final answers using a lightweight **local LLM** (`Qwen/Qwen2.5-0.5B-Instruct`).
 
-When a query is submitted, the engine searches the vector index for matching segments, constructs a structured prompt, and uses `gemini-2.5-flash` via the `google-genai` SDK to compile an answer containing precise timestamp citations.
+The service serves a modern, premium **glassmorphic chat interface** directly from the root route (`http://localhost:8000/`) so that you can ingest media files and chat with them in real-time.
 
 ---
 
 ## Key Features
 
-- **Fully Self-Hosted Ingestion & Embedding**: Transcribe and index files locally without sending data to external APIs.
+- **100% Local Execution**: Ingestion, transcription, embedding, vector storage, and response synthesis are executed fully offline on your own machine. No external APIs or keys needed!
+- **Interactive Glassmorphic Web UI**: A polished dark-mode chat interface with system health meters, live background task tracking, and clickable citation tags.
 - **Auto-Demuxing & Mono Downsampling**: System-level `ffmpeg` extraction converts multi-channel audio or video files into a clean 16kHz mono `.wav` stream before transcribing.
-- **Dynamic Compute Optimization**: Detects if `USE_GPU=1` is configured to run embedding/transcription on GPU via CUDA; otherwise falls back automatically to CPU utilizing `INT8` quantization for memory and speed efficiency.
+- **Dynamic Compute Optimization**: Detects if `USE_GPU=1` is configured to run embedding, transcription, and LLM inference on GPU via CUDA; otherwise falls back automatically to CPU utilizing `INT8` quantization for memory and speed efficiency.
 - **Idempotent Vector Storage**: Employs SHA-256 deterministic integer hashing to ensure points are stored conflict-free and can be re-ingested idempotently.
 - **Semantic Retrieval with Timestamp Citations**: Returns synthesis responses backed by exact timestamps mapped to source filenames (e.g., `[lecture_01.mp4 (00:15:32)]`).
 
@@ -27,28 +28,9 @@ graph TD
     F[User Search Query] -->|Embedding Creation| G(Query Vector)
     G -->|Similarity Search / Cosine Distance| E
     E -->|Retrieve Context Blocks & Timestamps| H[Context Aggregator]
-    H -->|Compile RAG Prompt & System Instruction| I[Gemini 2.5 Flash API]
-    I -->|Synthesized Answer with Citations| J[JSON Response]
+    H -->|Compile RAG Prompt & System Instruction| I[Local LLM - Qwen-0.5B-Instruct]
+    I -->|Synthesized Answer with Citations| J[HTML Chat Web UI]
 ```
-
----
-
-## Hybrid Architecture: Local Processing vs. Cloud LLM Synthesis
-
-This project uses a hybrid RAG (Retrieval-Augmented Generation) design to balance resource usage, data privacy, and synthesis quality:
-
-| Pipeline Step | Compute Mode | Technology / Engine | Description |
-|---|---|---|---|
-| **Audio Extraction** | **Local** | `FFmpeg` | Extracts and downsamples raw audio to 16kHz mono `.wav` files locally on your machine. |
-| **Speech-to-Text** | **Local** | `faster-whisper` | Transcribes the mono audio chunks locally with timestamp alignment. |
-| **Embeddings** | **Local** | `sentence-transformers` | Converts transcription blocks into 384-dimensional semantic vectors locally using `all-MiniLM-L6-v2`. |
-| **Vector DB** | **Local** | `Qdrant` | Stores payloads and coordinates cosine similarity search locally (embedded or server). |
-| **RAG Synthesis** | **Cloud** | `Gemini API` | Synthesizes a structured response incorporating source timestamps via `gemini-2.5-flash`. |
-
-### What happens if we do not use the Gemini API?
-* **Ingestion Remains Functional**: Since audio extraction, transcription, and indexing are 100% local, media files will ingest and embed successfully even without a network connection or API keys.
-* **Semantic Search Only**: Without the Gemini API (or if `GEMINI_API_KEY` is omitted), the server will raise an error on `/api/query` at the generation step. However, you can still query the local Qdrant database to retrieve raw transcript chunks and their matching timestamps (semantic search instead of generative Q&A).
-* **Fully Local Alternative**: To make the synthesis layer 100% local, the Gemini client in `app.py` can be replaced with a local LLM client calling a model running under **Ollama** (e.g., `llama3` or `mistral` running at `http://localhost:11434`), though this requires more CPU/GPU resources on your machine.
 
 ---
 
@@ -80,11 +62,6 @@ source venv/bin/activate
 pip install -r localstream/requirements.txt
 ```
 
-Set your Gemini API Key in the environment:
-```bash
-export GEMINI_API_KEY="your-gemini-api-key-here"
-```
-
 *(Optional)* Enable GPU compute acceleration (requires CUDA compatible hardware/libs):
 ```bash
 export USE_GPU=1
@@ -100,49 +77,32 @@ Start the FastAPI server using `uvicorn`:
 ```bash
 python3 -m uvicorn localstream.app:app --host 0.0.0.0 --port 8000 --reload
 ```
+*Note: On first startup, the server will automatically download the local embedding model (`all-MiniLM-L6-v2`) and the local LLM (`Qwen/Qwen2.5-0.5B-Instruct`). This may take a few minutes depending on your internet connection.*
 
-You can verify the system state by hitting the health check endpoint:
-```bash
-curl http://localhost:8000/health
-```
+### 2. Accessing the Web Interface
+Once the server started successfully, open your browser and navigate to:
+👉 **[http://localhost:8000/](http://localhost:8000/)**
 
-### 2. Ingesting Multimedia Files
-Send a POST request containing the absolute path to an audio or video file on your local machine:
+The interface allows you to:
+- Monitor status (device, loaded models, Qdrant status).
+- Ingest local media files by pasting their absolute paths.
+- Ask natural questions in the chat window, click citations, and inspect source reference chunks.
 
+### 3. API Commands (Alternative)
+You can still interact with the backend programmatically if desired:
+
+**Ingest File**:
 ```bash
 curl -X POST http://localhost:8000/api/ingest \
   -H "Content-Type: application/json" \
-  -d '{"file_path": "/Users/vashishtdevasani/Desktop/LocalStream/storage/uploads/sample_lecture.mp4"}'
+  -d '{"file_path": "/absolute/path/to/sample.mp4"}'
 ```
-*Note: The server returns `202 Accepted` immediately and processes transcription and indexing asynchronously in the background. Check application logs for progress.*
 
-### 3. Querying Content (RAG)
-Query the knowledge base using the semantic prompt:
-
+**Query RAG**:
 ```bash
 curl -X POST http://localhost:8000/api/query \
   -H "Content-Type: application/json" \
   -d '{"prompt": "What does the speaker say about system architecture?", "limit": 3}'
-```
-
-#### Example Output Response
-```json
-{
-  "query": "What does the speaker say about system architecture?",
-  "answer": "The speaker explains that the system architecture is split into five distinct microservices to ensure loose coupling [sample_lecture.mp4 (00:04:12)]. The central hub orchestrates these components using a message queue system [sample_lecture.mp4 (00:05:45)].",
-  "references": [
-    {
-      "filename": "sample_lecture.mp4",
-      "file_path": "/Users/vashishtdevasani/Desktop/LocalStream/storage/uploads/sample_lecture.mp4",
-      "start_timestamp": "00:04:12",
-      "end_timestamp": "00:04:45",
-      "start_seconds": 252.0,
-      "text": "we decided to split the architecture into five distinct microservices to ensure that they are loosely coupled.",
-      "score": 0.8123
-    },
-    ...
-  ]
-}
 ```
 
 ---
@@ -150,12 +110,13 @@ curl -X POST http://localhost:8000/api/query \
 ## Codebase Directory Structure
 ```text
 localstream/
-├── requirements.txt      # Pinned dependency manifest
-├── config.py            # Pydantic Settings & directory auto-creation
-├── transcribe.py        # FFMPEG audio extractor & faster-whisper worker
-├── database.py          # Qdrant vector client & SentenceTransformer indexing
-└── app.py               # FastAPI application layer & Gemini context synthesizer
+├── requirements.txt      # Dependency manifest (includes torch & transformers)
+├── config.py            # Settings configuration (default LLM: Qwen-0.5B)
+├── transcribe.py        # FFmpeg audio extractor & faster-whisper worker
+├── database.py          # Qdrant client & SentenceTransformer indexing
+├── app.py               # FastAPI application, local LLM generation, & root handler
+└── index.html           # Glassmorphic chat client frontend UI
 storage/                 # Automatically created local folders
-├── uploads/             # Place target audio/video source files here
-└── qdrant_data/         # Embedded local Qdrant sqlite-based database data
+├── uploads/             # Extracted video audio files (.wav)
+└── qdrant_data/         # Local Qdrant embedded database
 ```

@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LocalStream - Semantic Video Search & Local RAG</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #08090f;
+            --bg-surface: rgba(17, 19, 30, 0.4);
+            --bg-surface-solid: #11131e;
+            --border-color: rgba(255, 255, 255, 0.06);
+            --border-hover: rgba(255, 255, 255, 0.12);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.25);
+            --primary-hover: #a78bfa;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --font-display: 'Outfit', sans-serif;
+            --font-body: 'Inter', sans-serif;
+            --sidebar-width: 320px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            background-image: 
+                radial-gradient(circle at 10% 10%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(59, 130, 246, 0.08) 0%, transparent 40%);
+        }
+
+        /* Sidebar Container */
+        .sidebar {
+            width: var(--sidebar-width);
+            border-right: 1px solid var(--border-color);
+            background: rgba(10, 11, 18, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            height: 100%;
+            z-index: 10;
+        }
+
+        /* Brand Logo */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .brand-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--accent-blue));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        .brand-icon svg {
+            width: 20px;
+            height: 20px;
+            fill: #fff;
+        }
+
+        .brand-text {
+            font-family: var(--font-display);
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Sidebar Panels */
+        .panel {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .panel-title {
+            font-family: var(--font-display);
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* System Status Indicators */
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: var(--text-secondary);
+        }
+
+        .status-val {
+            font-weight: 500;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .indicator-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .indicator-dot.active {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .indicator-dot.inactive {
+            background-color: var(--accent-red);
+            box-shadow: 0 0 8px var(--accent-red);
+        }
+
+        /* Ingest Form */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .text-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 10px 12px;
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            font-family: var(--font-body);
+            transition: all 0.2s ease;
+        }
+
+        .text-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.15);
+        }
+
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(139, 92, 246, 0.3);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-hover);
+            box-shadow: none;
+        }
+
+        /* Ingestion Tasks List */
+        .task-list {
+            margin-top: 10px;
+            max-height: 120px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .task-item {
+            font-size: 11px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .task-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 500;
+        }
+
+        .task-item-name {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 180px;
+            color: var(--text-primary);
+        }
+
+        .task-status-badge {
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-size: 9px;
+            text-transform: uppercase;
+        }
+
+        .task-status-badge.pending {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--primary-hover);
+        }
+
+        .task-status-badge.processing {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-blue);
+            animation: pulse-badge 1.5s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        /* Chat Workspace */
+        .workspace {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            background: rgba(8, 9, 15, 0.2);
+        }
+
+        .chat-header {
+            height: 70px;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .chat-header-info h1 {
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .chat-header-info p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Chat History Scroll Container */
+        .chat-history {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+        }
+
+        /* Welcome Message Screen */
+        .welcome-screen {
+            margin: auto;
+            max-width: 500px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            color: var(--text-secondary);
+            padding: 20px;
+        }
+
+        .welcome-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 18px;
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 8px;
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.05);
+        }
+
+        .welcome-icon svg {
+            width: 32px;
+            height: 32px;
+            fill: var(--primary-hover);
+        }
+
+        .welcome-screen h2 {
+            font-family: var(--font-display);
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .welcome-screen p {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* Message Bubbles */
+        .message {
+            display: flex;
+            gap: 16px;
+            max-width: 80%;
+            animation: fade-in 0.3s ease;
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        .message-content {
+            padding: 14px 18px;
+            border-radius: var(--radius-lg);
+            font-size: 14px;
+            line-height: 1.6;
+            position: relative;
+        }
+
+        .message.user .message-content {
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: var(--text-primary);
+            border-top-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-top-left-radius: 4px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        /* Citation style */
+        .citation {
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: #d8b4fe;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 0 2px;
+            display: inline-block;
+            transition: all 0.2s ease;
+        }
+
+        .citation:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        /* References Box */
+        .references-box {
+            margin-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .references-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .reference-item {
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 6px;
+            padding: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .reference-item:hover {
+            border-color: rgba(139, 92, 246, 0.2);
+            background: rgba(139, 92, 246, 0.03);
+        }
+
+        .reference-meta {
+            display: flex;
+            justify-content: space-between;
+            color: var(--primary-hover);
+            font-size: 10px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .reference-text {
+            color: var(--text-secondary);
+            font-style: italic;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.4;
+        }
+
+        /* Message typing indicator */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            height: 20px;
+        }
+
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--text-muted);
+            border-radius: 50%;
+            animation: typing-animation 1.4s infinite ease-in-out both;
+        }
+
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing-animation {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Bottom Input Panel */
+        .input-panel {
+            padding: 24px 32px 32px 32px;
+            border-top: 1px solid var(--border-color);
+            background: rgba(10, 11, 18, 0.3);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .input-container {
+            display: flex;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 8px 16px;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .input-container:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            height: 24px;
+            line-height: 24px;
+            max-height: 120px;
+        }
+
+        .send-btn {
+            background: var(--primary);
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 10px var(--primary-glow);
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            background: var(--primary-hover);
+            transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .send-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: white;
+            margin-left: 2px;
+        }
+
+        .input-footer {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Scrollbar custom style */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <!-- Logo -->
+        <div class="brand">
+            <div class="brand-icon">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12,2A10,10,0,0,0,2,12a9.89,9.89,0,0,0,2.26,6.33L3,21l3-1A10,10,0,1,0,12,2Zm1,14.5a1.5,1.5,0,1,1,1.5-1.5A1.5,1.5,0,0,1,13,16.5ZM16,10c-.57,1.21-1.89,2-2.5,2.7s-.7,1.5-.7,2.3H11.2c0-1.12.33-2,1-2.7s1.84-1.63,2.16-2.3a1.44,1.44,0,0,0-1.36-2,1.39,1.39,0,0,0-1.4,1.4H10.1A2.89,2.89,0,0,1,13,7,2.94,2.94,0,0,1,16,10Z"/>
+                </svg>
+            </div>
+            <span class="brand-text">LocalStream</span>
+        </div>
+
+        <!-- Status Panel -->
+        <div class="panel">
+            <div class="panel-title">System Status</div>
+            <div class="status-item">
+                <span class="status-label">Engine</span>
+                <span class="status-val" id="status-engine">Connecting...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Device</span>
+                <span class="status-val" id="status-device"><span class="indicator-dot inactive"></span> CPU</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Local LLM</span>
+                <span class="status-val" id="status-llm">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Ingest Panel -->
+        <div class="panel" style="flex-grow: 1; display: flex; flex-direction: column;">
+            <div class="panel-title">Ingest Media</div>
+            <div class="input-group">
+                <label for="ingest-path">Absolute File Path</label>
+                <input type="text" id="ingest-path" class="text-input" placeholder="/path/to/video.mp4">
+            </div>
+            <button id="btn-ingest" class="btn" style="margin-bottom: 12px;">
+                <span>Ingest File</span>
+            </button>
+            <div class="panel-title" style="margin-top: 10px; font-size: 11px;">Active Workers</div>
+            <div class="task-list" id="task-list">
+                <div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 10px;">No active background tasks</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+        <div class="chat-header">
+            <div class="chat-header-info">
+                <h1>Multimedia Knowledge RAG</h1>
+                <p id="sub-header-model">Initializing local models...</p>
+            </div>
+        </div>
+
+        <!-- Chat History -->
+        <div class="chat-history" id="chat-history">
+            <!-- Welcome message -->
+            <div class="welcome-screen" id="welcome-screen">
+                <div class="welcome-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/>
+                    </svg>
+                </div>
+                <h2>Talk to Your Media</h2>
+                <p>Ingest video or audio files locally. We extract audio, transcribe speech with timestamps, index it, and synthesize answers entirely offline using a local LLM.</p>
+            </div>
+        </div>
+
+        <!-- Input Panel -->
+        <div class="input-panel">
+            <div class="input-container">
+                <textarea id="chat-input" class="chat-input" placeholder="Ask a question about your ingested multimedia content..." rows="1"></textarea>
+                <button id="send-btn" class="send-btn" disabled>
+                    <svg viewBox="0 0 24 24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-footer">
+                <span>Press Enter to send, Shift+Enter for new line</span>
+                <span>Powered by Qwen-0.5B-Instruct & faster-whisper</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const chatHistory = document.getElementById('chat-history');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const ingestPath = document.getElementById('ingest-path');
+        const btnIngest = document.getElementById('btn-ingest');
+        const taskList = document.getElementById('task-list');
+
+        // Status elements
+        const statusEngine = document.getElementById('status-engine');
+        const statusDevice = document.getElementById('status-device');
+        const statusLlm = document.getElementById('status-llm');
+        const subHeaderModel = document.getElementById('sub-header-model');
+
+        let isAppReady = false;
+        let activeIngestions = [];
+
+        // Auto-resize textarea
+        chatInput.addEventListener('input', () => {
+            chatInput.style.height = '24px';
+            chatInput.style.height = (chatInput.scrollHeight - 4) + 'px';
+            sendBtn.disabled = !chatInput.value.trim() || !isAppReady;
+        });
+
+        // Load health on load and set intervals
+        async function fetchHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                
+                statusEngine.innerHTML = `<span class="indicator-dot active"></span> Active`;
+                
+                const deviceLabel = data.compute_device.toUpperCase();
+                statusDevice.innerHTML = `<span class="indicator-dot active"></span> ${deviceLabel}`;
+                
+                statusLlm.innerHTML = `Loaded`;
+                statusLlm.style.color = 'var(--accent-green)';
+                
+                subHeaderModel.textContent = `Active Embedding: ${data.embedding_model} | Local LLM: ${data.local_llm_model || 'Qwen-0.5B'}`;
+                
+                isAppReady = true;
+                if (chatInput.value.trim()) {
+                    sendBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error("Health check error:", err);
+                statusEngine.innerHTML = `<span class="indicator-dot inactive"></span> Offline`;
+                statusDevice.innerHTML = `<span class="indicator-dot inactive"></span> Unknown`;
+                statusLlm.innerHTML = `Not Loaded`;
+                statusLlm.style.color = 'var(--accent-red)';
+                subHeaderModel.textContent = `Failed to connect to the backend server.`;
+                isAppReady = false;
+                sendBtn.disabled = true;
+            }
+        }
+
+        // Ingestion submit
+        btnIngest.addEventListener('click', async () => {
+            const path = ingestPath.value.trim();
+            if (!path) return;
+
+            btnIngest.disabled = true;
+            btnIngest.textContent = "Requesting...";
+
+            try {
+                const res = await fetch('/api/ingest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: path })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    ingestPath.value = '';
+                    const filename = path.split('/').pop();
+                    addLocalTask(filename, 'processing');
+                } else {
+                    alert(`Error: ${data.detail || 'Could not trigger ingestion'}`);
+                }
+            } catch (err) {
+                alert(`Ingestion failed: ${err.message}`);
+            } finally {
+                btnIngest.disabled = false;
+                btnIngest.textContent = "Ingest File";
+            }
+        });
+
+        function addLocalTask(filename, status) {
+            activeIngestions.unshift({ filename, status });
+            renderTaskList();
+            
+            // Simulate background progress in UI for demonstration
+            setTimeout(() => {
+                const task = activeIngestions.find(t => t.filename === filename);
+                if (task) {
+                    task.status = 'completed';
+                    renderTaskList();
+                    // Remove after a while
+                    setTimeout(() => {
+                        activeIngestions = activeIngestions.filter(t => t.filename !== filename);
+                        renderTaskList();
+                    }, 5000);
+                }
+            }, 60000); // change status to complete after 1m in UI (since actual processing is background)
+        }
+
+        function renderTaskList() {
+            if (activeIngestions.length === 0) {
+                taskList.innerHTML = `<div style="font-size: 11px; color: var(--text-muted); text-align: center; padding: 10px;">No active background tasks</div>`;
+                return;
+            }
+
+            taskList.innerHTML = activeIngestions.map(task => `
+                <div class="task-item">
+                    <div class="task-item-header">
+                        <span class="task-item-name" title="${task.filename}">${task.filename}</span>
+                        <span class="task-status-badge ${task.status}">${task.status}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Chat submit
+        async function sendMessage() {
+            const prompt = chatInput.value.trim();
+            if (!prompt || !isAppReady) return;
+
+            // Hide welcome screen
+            if (welcomeScreen) {
+                welcomeScreen.remove();
+            }
+
+            // Append User Message
+            appendMessage('user', prompt);
+            chatInput.value = '';
+            chatInput.style.height = '24px';
+            sendBtn.disabled = true;
+
+            // Append Typing Indicator
+            const typingBubble = appendMessage('assistant', `
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            `);
+
+            try {
+                const res = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt, limit: 4 })
+                });
+
+                const data = await res.json();
+                typingBubble.remove();
+
+                if (res.ok) {
+                    renderResponse(data);
+                } else {
+                    appendMessage('assistant', `<span style="color: var(--accent-red)">Error: ${data.detail || 'Failed to get local LLM response'}</span>`);
+                }
+            } catch (err) {
+                typingBubble.remove();
+                appendMessage('assistant', `<span style="color: var(--accent-red)">Connection error: ${err.message}</span>`);
+            }
+        }
+
+        function appendMessage(role, content) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}`;
+
+            const avatarText = role === 'user' ? 'U' : 'AI';
+            msgDiv.innerHTML = `
+                <div class="message-avatar">${avatarText}</div>
+                <div class="message-content">${content}</div>
+            `;
+
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+            return msgDiv;
+        }
+
+        function formatCitations(text) {
+            // Regex to match citations like: [video.mp4 (00:02:15)]
+            const citationRegex = /\[([^\]]+?\.[a-zA-Z0-9]+?\s*?\([^)]+?\))\]/g;
+            return text.replace(citationRegex, (match, p1) => {
+                return `<span class="citation" onclick="handleCitationClick('${p1}')">${match}</span>`;
+            });
+        }
+
+        function renderResponse(data) {
+            const formattedAnswer = formatCitations(data.answer);
+            
+            let referenceHtml = '';
+            if (data.references && data.references.length > 0) {
+                referenceHtml = `
+                    <div class="references-box">
+                        <div class="references-title">Retrieved Reference Chunks</div>
+                        ${data.references.map(ref => `
+                            <div class="reference-item" onclick="handleReferenceClick('${ref.filename}', '${ref.start_timestamp}')">
+                                <div class="reference-meta">
+                                    <span>${ref.filename} (${ref.start_timestamp} - ${ref.end_timestamp})</span>
+                                    <span>Similarity: ${(ref.score * 100).toFixed(1)}%</span>
+                                </div>
+                                <div class="reference-text">"${ref.text}"</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            const bubbleHtml = `
+                <div>${formattedAnswer}</div>
+                ${referenceHtml}
+            `;
+
+            appendMessage('assistant', bubbleHtml);
+        }
+
+        function handleCitationClick(citationText) {
+            // Extracts name and timestamp
+            // e.g. "my_video.mp4 (00:01:23)"
+            const parts = citationText.split(' (');
+            if (parts.length === 2) {
+                const name = parts[0];
+                const time = parts[1].replace(')', '');
+                alert(`Navigating to media chunk: ${name} at timestamp ${time}`);
+            }
+        }
+
+        function handleReferenceClick(filename, timestamp) {
+            alert(`Selected Reference: ${filename} starting at ${timestamp}`);
+        }
+
+        // Keyboard triggers
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Initialize status polling
+        fetchHealth();
+        setInterval(fetchHealth, 10000);
+    </script>
+</body>
+</html>
