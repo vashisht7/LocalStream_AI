@@ -6,6 +6,22 @@ The service serves a modern, premium **glassmorphic chat interface** directly fr
 
 ---
 
+## 🔄 Project Evolution & Architectural Migration
+
+This project was evolved from a **hybrid cloud-local pipeline** to a **100% self-hosted local execution engine**. The progression of the architecture includes:
+
+1. **Phase 1: Hybrid Cloud RAG (Initial Version)**:
+   - Ingestion, transcription (`faster-whisper`), and vector database indexing (`SentenceTransformers` + `Qdrant`) ran completely offline on the user's host machine.
+   - The final RAG response synthesis was performed using the **Gemini API** (`gemini-2.5-flash` via the `google-genai` SDK), requiring an internet connection and a `GEMINI_API_KEY` environment variable.
+   - User testing was restricted to command-line `curl` requests or the default raw Swagger API documentation page.
+
+2. **Phase 2: 100% Local RAG with Glassmorphic Web UI (Current Version)**:
+   - **Local LLM Integration**: The cloud Gemini API dependency was completely removed. Synthesis is now performed locally using a lightweight 0.5-billion parameter model (**`Qwen/Qwen2.5-0.5B-Instruct`**) loaded in-process via Hugging Face `transformers` and `PyTorch`. This runs on CPU or GPU seamlessly and operates entirely offline.
+   - **Interactive Web Interface**: Replaced the Swagger UI with a modern, single-page application (SPA) dashboard (`index.html`) using HTML, CSS gradients, backdrop blurs, and vanilla JavaScript. Served directly at the `/` root route, it provides a premium chat workspace, live system health metrics, and background task feedback.
+   - **System Compatibility & Optimization**: Reconfigured the PyAV (`av`) dependency to compile with latest FFmpeg 8.x packages on Python 3.13, ensuring it is optimized for modern local setups.
+
+---
+
 ## Key Features
 
 - **100% Local Execution**: Ingestion, transcription, embedding, vector storage, and response synthesis are executed fully offline on your own machine. No external APIs or keys needed!
