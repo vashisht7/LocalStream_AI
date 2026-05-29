@@ -33,6 +33,25 @@ graph TD
 
 ---
 
+## Hybrid Architecture: Local Processing vs. Cloud LLM Synthesis
+
+This project uses a hybrid RAG (Retrieval-Augmented Generation) design to balance resource usage, data privacy, and synthesis quality:
+
+| Pipeline Step | Compute Mode | Technology / Engine | Description |
+|---|---|---|---|
+| **Audio Extraction** | **Local** | `FFmpeg` | Extracts and downsamples raw audio to 16kHz mono `.wav` files locally on your machine. |
+| **Speech-to-Text** | **Local** | `faster-whisper` | Transcribes the mono audio chunks locally with timestamp alignment. |
+| **Embeddings** | **Local** | `sentence-transformers` | Converts transcription blocks into 384-dimensional semantic vectors locally using `all-MiniLM-L6-v2`. |
+| **Vector DB** | **Local** | `Qdrant` | Stores payloads and coordinates cosine similarity search locally (embedded or server). |
+| **RAG Synthesis** | **Cloud** | `Gemini API` | Synthesizes a structured response incorporating source timestamps via `gemini-2.5-flash`. |
+
+### What happens if we do not use the Gemini API?
+* **Ingestion Remains Functional**: Since audio extraction, transcription, and indexing are 100% local, media files will ingest and embed successfully even without a network connection or API keys.
+* **Semantic Search Only**: Without the Gemini API (or if `GEMINI_API_KEY` is omitted), the server will raise an error on `/api/query` at the generation step. However, you can still query the local Qdrant database to retrieve raw transcript chunks and their matching timestamps (semantic search instead of generative Q&A).
+* **Fully Local Alternative**: To make the synthesis layer 100% local, the Gemini client in `app.py` can be replaced with a local LLM client calling a model running under **Ollama** (e.g., `llama3` or `mistral` running at `http://localhost:11434`), though this requires more CPU/GPU resources on your machine.
+
+---
+
 ## Installation & Setup
 
 ### 1. System Dependencies
